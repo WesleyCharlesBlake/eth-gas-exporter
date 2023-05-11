@@ -21,7 +21,17 @@ docker build -t gwei_exporter .
 docker run -p 9090:9090 gwei_exporter
 ```
 
-The exporter will listen on port 9090 by default.
+The exporter will listen on port `9090` and the path `/metrics` by default.
+
+```
+curl http://localhost:9090/metrics
+# HELP eth_gas_price The current gas price of ETH in gwei
+# TYPE eth_gas_price gauge
+eth_gas_price{type="average"} 143
+eth_gas_price{type="fast"} 530
+eth_gas_price{type="fastest"} 530
+eth_gas_price{type="safeLow"} 143
+```
 
 ### Include scrape configs
 
