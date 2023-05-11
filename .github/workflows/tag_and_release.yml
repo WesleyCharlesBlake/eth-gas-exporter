@@ -10,8 +10,8 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: rymndhng/release-on-push-action@master
+      - uses: rymndhng/release-on-push-action@v0.22.0
         with:
           bump_version_scheme: patch
-          release_body: ":rocket: Release Notes !:fireworks: "
+          release_body: ":rocket: Release Notes :fireworks:"
           use_github_release_notes: true
