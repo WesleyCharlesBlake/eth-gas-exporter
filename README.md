@@ -48,7 +48,7 @@ scrape_configs:
   - job_name: "gwei"
     scrape_interval: 10s
     static_configs:
-      - targets: ["localhost:9090"]
+      - targets: ["localhost:9100"]
 ```
 
 This will tell Prometheus to scrape the exporter every 10 seconds.
