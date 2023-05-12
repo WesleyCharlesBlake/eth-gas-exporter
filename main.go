@@ -2,86 +2,98 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
+	"os"
+	"strconv"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-// GetETHGasPrices gets the current ETH gas prices in gwei.
-func GetETHGasPrices() (map[string]float64, error) {
-	// Get the prices from the Ethereum blockchain.
-	resp, err := http.Get("https://ethgasstation.info/api/ethgasAPI.json")
-	if err != nil {
-		return nil, err
-	}
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	var gasPrices map[string]interface{}
-	err = json.Unmarshal(body, &gasPrices)
-	if err != nil {
-		return nil, err
-	}
-
-	// Get the gas prices from the JSON object.
-	fastPrice, ok := gasPrices["fast"].(float64)
-	if !ok {
-		return nil, fmt.Errorf("Cannot convert fastPrice to float64")
-	}
-	fastestPrice, ok := gasPrices["fastest"].(float64)
-	if !ok {
-		return nil, fmt.Errorf("Cannot convert fastestPrice to float64")
-	}
-	safeLowPrice, ok := gasPrices["safeLow"].(float64)
-	if !ok {
-		return nil, fmt.Errorf("Cannot convert safeLowPrice to float64")
-	}
-	averagePrice, ok := gasPrices["average"].(float64)
-	if !ok {
-		return nil, fmt.Errorf("Cannot convert averagePrice to float64")
-	}
-
-	// Return the gas prices.
-	return map[string]float64{
-		"fast":    fastPrice,
-		"fastest": fastestPrice,
-		"safeLow": safeLowPrice,
-		"average": averagePrice,
-	}, nil
+type GasTracker struct {
+	SafeGasPrice    string `json:"SafeGasPrice"`
+	ProposeGasPrice string `json:"ProposeGasPrice"`
+	FastGasPrice    string `json:"FastGasPrice"`
 }
 
-// main is the entry point for the program.
-func main() {
-	// Create a new Prometheus registry.
-	reg := prometheus.NewRegistry()
+var EtherscanAPIURL = "https://api.etherscan.io/api?module=gastracker&action=gasoracle&apikey="
 
-	// Create a new Gauge metric for the ETH gas price.
-	ethGasPriceGauge := prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "eth_gas_price",
-		Help: "The current gas price of ETH in gwei",
-	}, []string{"type"})
+var (
+	gasPrice = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "eth_gas_price",
+			Help: "Current ethereum gas prices.",
+		},
+		[]string{"type"},
+	)
+)
 
-	// Register the ETH gas price gauge with the registry.
-	reg.MustRegister(ethGasPriceGauge)
-
-	// Get the current ETH gas prices.
-	prices, err := GetETHGasPrices()
+func fetchGasPrices() {
+	apiKey := os.Getenv("ETHERSCAN_API_KEY")
+	resp, err := http.Get(EtherscanAPIURL + apiKey)
 	if err != nil {
-		fmt.Println(err)
+		log.Println("Error fetching gas prices:", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Println("Error reading gas prices response:", err)
 		return
 	}
 
-	// Set the value of the ETH gas price gauge.
-	ethGasPriceGauge.WithLabelValues("fast").Set(prices["fast"])
-	ethGasPriceGauge.WithLabelValues("fastest").Set(prices["fastest"])
-	ethGasPriceGauge.WithLabelValues("safeLow").Set(prices["safeLow"])
-	ethGasPriceGauge.WithLabelValues("average").Set(prices["average"])
+	var result struct {
+		Status  string     `json:"status"`
+		Message string     `json:"message"`
+		Result  GasTracker `json:"result"`
+	}
 
-	// Start a Prometheus HTTP server on port 9090.
-	http.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
-	http.ListenAndServe(":9090", nil)
+	err = json.Unmarshal(body, &result)
+	if err != nil {
+		log.Println("Error parsing gas prices JSON:", err)
+		return
+	}
+
+	safeGasPrice, err := strconv.ParseFloat(result.Result.SafeGasPrice, 64)
+	if err == nil {
+		gasPrice.WithLabelValues("safe").Set(safeGasPrice)
+	}
+
+	proposeGasPrice, err := strconv.ParseFloat(result.Result.ProposeGasPrice, 64)
+	if err == nil {
+		gasPrice.WithLabelValues("propose").Set(proposeGasPrice)
+	}
+
+	fastGasPrice, err := strconv.ParseFloat(result.Result.FastGasPrice, 64)
+	if err == nil {
+		gasPrice.WithLabelValues("fast").Set(fastGasPrice)
+	}
+}
+
+func recordMetrics() {
+	go func() {
+		for {
+			fetchGasPrices()
+			time.Sleep(10 * time.Second)
+		}
+	}()
+}
+
+func main() {
+	// Create a new registry
+	r := prometheus.NewRegistry()
+
+	// Register the custom collector with the registry
+	r.MustRegister(gasPrice)
+
+	// Start the metrics recording goroutine
+	recordMetrics()
+
+	// Start the HTTP server with the custom registry
+	http.Handle("/metrics", promhttp.HandlerFor(r, promhttp.HandlerOpts{}))
+	http.ListenAndServe(":9100", nil)
 }
