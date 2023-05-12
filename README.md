@@ -18,13 +18,19 @@ To run the Docker image, run the following command:
 
 ```
 docker build -t gwei_exporter .
-docker run -p 9090:9090 gwei_exporter
+docker run -p 9100:9100 gwei_exporter
 ```
 
-The exporter will listen on port `9090` and the path `/metrics` by default.
+The exporter will listen on port `9100` and the path `/metrics` by default.
+
+Be sure to export `ETHERSCAN_API_KEY` if you wish to not be rate limited
+
+```console
+export ETHERSCAN_API_KEY=xxxxxxx.....
+```
 
 ```
-curl http://localhost:9090/metrics
+curl http://localhost:9100/metrics
 # HELP eth_gas_price The current gas price of ETH in gwei
 # TYPE eth_gas_price gauge
 eth_gas_price{type="average"} 143
